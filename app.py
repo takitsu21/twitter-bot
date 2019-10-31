@@ -96,14 +96,14 @@ class Twitter(tweepy.API):
         self.colorize_string(
             Fore.GREEN,
             screen_name + Fore.GREEN + " author followed"
-            )
+        )
 
     def _follow_entities(self, user_mentions: list) -> None:
         for e in user_mentions:
-            self.create_friendship(e.id)
+            self.create_friendship(e.get("id"))
             self.colorize_string(
                 Fore.LIGHTBLUE_EX,
-                e.screen_name + Fore.GREEN + " third entitie followed"
+                e.get("screen_name") + Fore.GREEN + " third entitie followed"
             )
 
     def _retweet(self, _id: int) -> None:
@@ -130,7 +130,8 @@ class Twitter(tweepy.API):
                                            tweet_mode='extended').items():
                     user = tweet.user
                     if user.followers_count >= 8000 \
-                            and not self.is_retweeted(tweet.id):
+                            and not self.is_retweeted(tweet.id) \
+                            and not tweet.retweeted:
                         text = {t.upper() for t in tweet.full_text.split(" ")}
                         if len(PATTERN_ACCEPTED - text) < LENGTH_PATTERN:
                             self.colorize_string(
