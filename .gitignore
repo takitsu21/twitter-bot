@@ -24,7 +24,7 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
-setup.ini
+.env
 test.py
 
 # PyInstaller

@@ -7,36 +7,26 @@ import os
 from colorama import Fore, Back, Style
 import datetime as dt
 import time
-import configparser
+from decouple import config
 
 PATTERN_ACCEPTED = {
     "RT",
     "#RT",
-    "RETWEET",
-    "#RETWEET"
-}
-TO_FOLLOW = {
-    "FOLLOW",
-    "+FOLLOW"
+    "+RT"
 }
 LENGTH_PATTERN = len(PATTERN_ACCEPTED)
-LENGTH_TO_FOLLOW = len(TO_FOLLOW)
 params = {}
 
 
 def setup_params() -> None:
-    global params
-    config = configparser.ConfigParser()
-    config.read("setup.ini")
-    config = config["TOKENS"]
-    params["consumer_key"] = config["consumer_key"]
-    params["consumer_secret"] = config["consumer_secret"]
-    params["access_token_key"] = config["access_token_key"]
-    params["access_token_secret"] = config["access_token_secret"]
+    params["consumer_key"] = config('consumer_key')
+    params["consumer_secret"] = config('consumer_secret')
+    params["access_token_key"] = config('access_token_key')
+    params["access_token_secret"] = config('access_token_secret')
 
 
 class Twitter(tweepy.API):
-    def __init__(self, lang: str = "fr", **tokens):
+    def __init__(self, **tokens):
         self.__dict__.update(tokens)
         self.auth = tweepy.OAuthHandler(self.consumer_key,
                                         self.consumer_secret)
@@ -45,7 +35,6 @@ class Twitter(tweepy.API):
         super().__init__(self.auth,
                          wait_on_rate_limit_notify=True,
                          wait_on_rate_limit=True)
-        self.lang = lang
 
     @staticmethod
     def range_date() -> tuple:
@@ -54,26 +43,43 @@ class Twitter(tweepy.API):
         return f"{since.year}-{since.month}-{since.day}", \
                f"{until.year}-{until.month}-{until.day}"
 
+    def _input_min_followers(self) -> int:
+        try:
+            min_follow = int(input("> Minimum followers the user "
+                                   "must have [0; +Inf]"))
+            return min_follow
+        except ValueError:
+            print("It should be an integer!")
+            return self._input_min_followers()
+
+    def _keep_verified(self):
+        try:
+            keep_verified = input("> Do you want to keep "
+                                  "your verified friend ? (y/n) ")
+            return True if keep_verified.lower() == "y" else False
+        except ValueError:
+            return self._keep_verified()
+
     def friends_cleaner(self) -> None:
-        keep_verified = input("> Do you want to keep"
-                              "your verified friend ? (y/n) ")
-        keep_verified = True if keep_verified.lower() == "y" else False
-        followers_count = int(self.me().followers_count)
+        keep_verified = self._keep_verified()
+        min_follow = self._input_min_followers()
+        friends_count = int(self.me().friends_count)
         sleeper = .8
         self.colorize_string(Fore.YELLOW,
                              "This operation will take at least"
-                             f"{followers_count * sleeper}s +"
-                             " the rate limit time")
+                             f" {friends_count * sleeper}s +"
+                              " the rate limit time")
         for friend in tweepy.Cursor(self.friends).items():
             try:
                 if keep_verified:
-                    if not friend.verified:
+                    if not friend.verified and friend.followers_count < min_follow:
                         self.destroy_friendship(friend.id)
                         self.colorize_string(
                             Fore.LIGHTBLUE_EX,
                             f"{str(friend.id)}{Style.RESET_ALL}"
                             f"{Fore.LIGHTRED_EX}"
-                            " deleted")
+                            " deleted"
+                            )
                         time.sleep(sleeper)
                 else:
                     self.destroy_friendship(friend.id)
@@ -88,15 +94,16 @@ class Twitter(tweepy.API):
                 exit()
 
     @staticmethod
-    def colorize_string(color, string: str) -> None:
+    def colorize_string(color: str, string: str) -> None:
         print(color + string + Style.RESET_ALL)
 
-    def _follow_author(self, _id: int, screen_name: str) -> None:
-        self.create_friendship(_id)
-        self.colorize_string(
-            Fore.GREEN,
-            screen_name + Fore.GREEN + " author followed"
-        )
+    def _follow_author(self, user: int) -> None:
+        if user.following == False:
+            self.create_friendship(user.id)
+            self.colorize_string(
+                    Fore.GREEN,
+                user.screen_name + Fore.GREEN + " author followed"
+            )
 
     def _follow_entities(self, user_mentions: list) -> None:
         for e in user_mentions:
@@ -106,79 +113,77 @@ class Twitter(tweepy.API):
                 e.get("screen_name") + Fore.GREEN + " third entitie followed"
             )
 
-    def _retweet(self, _id: int) -> None:
-        self.retweet(_id)
+    def _retweet(self, tweet: int) -> None:
+        self.retweet(tweet.id)
         self.colorize_string(
             Fore.LIGHTBLUE_EX,
-            str(_id) + Fore.GREEN + " retweeted"
+            str(tweet.id) + Fore.GREEN + " retweeted"
         )
 
-    def is_retweeted(self, tweet_id):
-        return self.get_status(tweet_id).retweeted
+    def is_retweeted(self, tweet):
+        return self.get_status(tweet.id).retweeted
 
     def core(self):
         query = input("> Type what you want to be"
                       " searched on twitter (Example : #concours) >> ")
+        keep_verified = self._keep_verified() # TODO: implement
+        min_followers = self._input_min_followers()
         if len(query):
             while True:
-                __range_date = self.range_date()
+                # __range_date = self.range_date()
                 for tweet in tweepy.Cursor(self.search,
                                            q=query,
-                                           lang=self.lang,
-                                           since=__range_date[0],
-                                           until=__range_date[1],
+                                           count=200,
+                                           rpp = 100,
+                                        #    since=__range_date[0],
+                                        #    until=__range_date[1],
                                            tweet_mode='extended').items():
                     user = tweet.user
-                    if user.followers_count >= 8000 \
-                            and not self.is_retweeted(tweet.id) \
-                            and not tweet.retweeted:
-                        text = {t.upper() for t in tweet.full_text.split(" ")}
-                        if len(PATTERN_ACCEPTED - text) < LENGTH_PATTERN:
-                            self.colorize_string(
-                                Back.LIGHTBLUE_EX,
-                                "Tweet " + str(tweet.id)
-                            )
-                            self._follow_author(user.id, user.screen_name)
-                            if len(TO_FOLLOW - text) < LENGTH_TO_FOLLOW:
-                                self._follow_entities(
-                                    tweet.entities.get("user_mentions")
-                                )
-                            self._retweet(tweet.id)
-                            print()
+                    if user.followers_count >= min_followers \
+                            and tweet.retweeted is False:
+                        text = {t.upper().replace("\n", "") for t in tweet.full_text.split(" ")}
+                        print(text)
+                        try:
+                            if len(PATTERN_ACCEPTED - text) < LENGTH_PATTERN:
+                                tweet_url = f"https://twitter.com/{user.screen_name}/status/{tweet.id}"
+                                self.colorize_string(
+                                    Fore.BLUE,
+                                    "Tweet " + tweet_url
+                                    )
+                                self._follow_author(user)
+                                self._follow_entities(tweet.entities.get("user_mentions")) 
+                                self._retweet(tweet)
+                                print()
+                        except tweepy.TweepError as response:
+                            if response.api_code == 327:
+                                self.colorize_string(Fore.LIGHTRED_EX,
+                                                 "Already retweeted")
+                            else:
+                                print(response)
             os.system("pause")
 
-    def test(self):
-        query = input("> Type what you want to be"
-                      " searched on twitter (Example : #concours) >> ")
-        __range_date = self.range_date()
-
-        for tweet in tweepy.Cursor(self.search,
-                                   q=query,
-                                   lang=self.lang,
-                                   since=__range_date[0],
-                                   until=__range_date[1],
-                                   tweet_mode='extended').items(1):
-            print(tweet._json)
-        os.system("pause")
+    # def test(self):
+    #     print(self.get_status(1190644559329611776)._json)
+    #     input()
 
     def run(self, *args, **kwargs):
         try:
             menu = ConsoleMenu("Twitter bot",
                                "Author : https://github.com/takitsu21/")
-            menu_item = MenuItem("Menu Item")
-            tweet_by_query = FunctionItem("Get tweet by query", self.core)
-            clean_friends = FunctionItem("Clean all friends",
+            menu_item = MenuItem("Menu")
+            tweet_by_query = FunctionItem("RT to gain prizes", self.core)
+            clean_friends = FunctionItem("Clean friends (choose verified, minimum followers to keep)",
                                          self.friends_cleaner)
-            test = FunctionItem("Debug", self.test)
+            # test = FunctionItem("Debug", self.test)
 
-            selection_menu = SelectionMenu(os.listdir())
-            submenu_item = SubmenuItem("Submenu item", selection_menu, menu)
+            # selection_menu = SelectionMenu(os.listdir())
+            # submenu_item = SubmenuItem("Submenu item", selection_menu, menu)
             menu.append_item(menu_item)
-            menu.append_item(test)
+            # menu.append_item(test)
 
             menu.append_item(tweet_by_query)
             menu.append_item(clean_friends)
-            menu.append_item(submenu_item)
+            # menu.append_item(submenu_item)
             menu.show()
         except KeyboardInterrupt:
             menu.show()
@@ -188,3 +193,4 @@ if __name__ == "__main__":
     setup_params()
     t = Twitter(**params)
     t.run()
+    # t.test()

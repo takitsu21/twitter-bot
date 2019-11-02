@@ -1,3 +1,4 @@
 tweepy
 console-menu
 colorama
+python-decouple
