@@ -22,7 +22,7 @@ git clone https://github.com/takitsu21/twitter-bot
 * Goto [Twitter apps](https://developer.twitter.com/en/apps)
 * Create an app
 * Rename `.env.example` to `.env`
-* Fill out the `.env` file with your Consumer API keys and Acess token
+* Fill out the `.env` file with your Consumer API keys and Access token
 
 ### Installing
 
