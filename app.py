@@ -7,7 +7,7 @@ import os
 from colorama import Fore, Back, Style
 import datetime as dt
 import time
-from decouple import config
+import decouple
 
 PATTERN_ACCEPTED = {
     "RT",
@@ -19,11 +19,23 @@ params = {}
 
 
 def setup_params() -> None:
-    params["consumer_key"] = config('consumer_key')
-    params["consumer_secret"] = config('consumer_secret')
-    params["access_token_key"] = config('access_token_key')
-    params["access_token_secret"] = config('access_token_secret')
-
+    is_token_valid = [25, 50, 50, 45]
+    try:
+        print("> Setting up tokens...")
+        params["consumer_key"] = decouple.config('consumer_key')
+        params["consumer_secret"] = decouple.config('consumer_secret')
+        params["access_token_key"] = decouple.config('access_token_key')
+        params["access_token_secret"] = decouple.config('access_token_secret')
+        if is_token_valid != list(map(len, params.values())):
+            raise decouple.UndefinedValueError("Token missing!")
+        print("> Setup finished")
+    except decouple.UndefinedValueError:
+        with open(".env", "w+", encoding="utf8") as f:
+            f.write("consumer_key = \n"
+                    "consumer_secret = \n"
+                    "access_token_key = \n"
+                    "access_token_secret = ")
+        print("> .env file has been created, fill it out please")
 
 class Twitter(tweepy.API):
     def __init__(self, **tokens):
@@ -52,7 +64,7 @@ class Twitter(tweepy.API):
             print("It should be an integer!")
             return self._input_min_followers()
 
-    def _keep_verified(self):
+    def _keep_verified(self) -> bool:
         try:
             keep_verified = input("> Do you want to keep "
                                   "the verified user ? (y/n) >> ")
@@ -135,12 +147,12 @@ class Twitter(tweepy.API):
             while True:
                 # __range_date = self.range_date()
                 for tweet in tweepy.Cursor(self.search,
-                                           q=query,
-                                           count=200,
-                                           rpp = 100,
+                                        q=query,
+                                        count=200,
+                                        rpp = 100,
                                         #    since=__range_date[0],
                                         #    until=__range_date[1],
-                                           tweet_mode='extended').items():
+                                        tweet_mode='extended').items():
                     user = tweet.user
                     if user.followers_count >= min_followers \
                             and tweet.retweeted is False:
@@ -171,10 +183,10 @@ class Twitter(tweepy.API):
                         except tweepy.TweepError as response:
                             if response.api_code == 327:
                                 self.colorize_string(Fore.LIGHTRED_EX,
-                                                     "Already retweeted")
+                                                    "Already retweeted")
                             else:
                                 print(response)
-            os.system("pause")
+            # os.system("pause")
 
     # def test(self):
     #     print(self.get_status(1190644559329611776)._json)
@@ -205,5 +217,5 @@ class Twitter(tweepy.API):
 
 if __name__ == "__main__":
     setup_params()
-    t = Twitter(**params)
-    t.run()
+    # t = Twitter(**params)
+    # t.run()
